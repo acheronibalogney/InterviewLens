@@ -1,0 +1,5 @@
+@extends('layouts.app')
+@section('title', 'Learning resources')
+@section('content')
+<section class="page-intro"><div class="eyebrow">A FEW GOOD PLACES TO START</div><h1>Learning library</h1><p>Helpful reading to go with your practice. Pick a guide that fits the skill you want to work on.</p></section><div class="resource-grid">@foreach($resources as $resource)<a class="resource-card" href="{{ $resource->url }}" target="_blank" rel="noopener noreferrer"><div class="resource-top"><span class="resource-category">{{ $resource->category }}</span><span class="external-icon">↗</span></div><h2>{{ $resource->title }}</h2><p>{{ $resource->description }}</p><div class="resource-bottom"><span>{{ collect($resource->skills)->map(fn ($skill) => ucwords(str_replace('_', ' ', $skill)))->join(', ') }}</span><strong>Explore guide ↗</strong></div></a>@endforeach</div><p class="resource-note">Learning resources are third-party links. InterviewLens doesn’t control their content or availability.</p>
+@endsection

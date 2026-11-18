@@ -1,0 +1,8 @@
+@extends('layouts.app')
+@section('title', 'Your history')
+@section('content')
+<section class="page-intro"><div class="eyebrow">YOUR PRACTICE, OVER TIME</div><h1>Your history</h1><p>Revisit previous answers and notice how your practice is taking shape.</p></section>
+@if($evaluations->isEmpty())<div class="empty-state"><span>◷</span><strong>No practice history yet.</strong><p>Your saved feedback will show up here after your first answer.</p><a class="button button-dark" href="{{ route('practice') }}">Choose a question <span>→</span></a></div>@else
+<div class="history-summary"><div><span>Total practice answers</span><strong>{{ $totalAnswers }}</strong></div><div><span>Recent average</span><strong>{{ $averageScore }}<small> / 100</small></strong></div><div><span>Saved to</span><strong>your account</strong></div></div><div class="history-table-wrap"><table class="history-table"><thead><tr><th>QUESTION</th><th>DATE PRACTICED</th><th>WORDS</th><th>SCORE</th><th></th></tr></thead><tbody>@foreach($evaluations as $evaluation)<tr><td><strong>{{ $evaluation->question->question }}</strong><small>{{ $evaluation->question->category }}</small></td><td>{{ $evaluation->created_at->format('M j, Y · g:i a') }}</td><td>{{ $evaluation->word_count }}</td><td><span class="score-pill {{ $evaluation->score >= 75 ? 'score-high' : ($evaluation->score >= 50 ? 'score-mid' : 'score-low') }}">{{ $evaluation->score }} <small>/100</small></span></td><td><a class="row-link" href="{{ route('results.show', $evaluation) }}">Review →</a></td></tr>@endforeach</tbody></table></div>{{ $evaluations->links() }}
+@endif
+@endsection
