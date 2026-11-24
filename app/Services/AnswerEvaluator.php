@@ -74,4 +74,29 @@ class AnswerEvaluator
             'feedback' => $feedback,
         ];
     }
+
+    /**
+     * @param  array<int, array{criterion:string, criterion_score:int, tip:string}>  $feedback
+     * @param  array<int, string>  $starComponents
+     * @return array<int, array{criterion:string, criterion_score:int, tip:string}>
+     */
+    public function capUnsupportedStarScores(array $feedback, array $starComponents): array
+    {
+        foreach ($feedback as $index => $item) {
+            $component = match ($item['criterion']) {
+                'situation' => 'Situation',
+                'task' => 'Task',
+                'action' => 'Action',
+                'result' => 'Result',
+                default => null,
+            };
+
+            if ($component !== null && ! in_array($component, $starComponents, true)) {
+                $feedback[$index]['criterion_score'] = max(1, min($item['criterion_score'], 5));
+                $feedback[$index]['tip'] = "The answer did not show clear {$component} evidence. This criterion is capped at 5/25; add a specific detail to earn more points.";
+            }
+        }
+
+        return $feedback;
+    }
 }

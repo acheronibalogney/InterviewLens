@@ -10,6 +10,7 @@ use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Sleep;
 use Tests\TestCase;
 
 class InterviewLensFlowTest extends TestCase
@@ -48,12 +49,115 @@ class InterviewLensFlowTest extends TestCase
         $this->assertSame($answer, $attempt->answer_text);
         $this->assertSame(4, $attempt->feedbackItems()->count());
         $this->assertSame($attempt->total_score, $attempt->feedbackItems()->sum('criterion_score'));
-        $this->get(route('results.show', $attempt))->assertOk()->assertSee('Your feedback')->assertSee('YOUR PRACTICE SCORE')->assertSee('A FEW RECOMMENDED NEXT READS')->assertSee('FROM YOUR AI INTERVIEWER');
+        $this->get(route('results.show', $attempt))->assertOk()->assertSee('Your feedback')->assertSee('YOUR PRACTICE SCORE')->assertSee('A FEW RECOMMENDED NEXT READS')->assertSee('FROM YOUR AI INTERVIEWER')->assertSee('data-results-page', false);
         $this->get(route('history'))->assertOk()->assertSee($question->question_text);
 
         Http::assertSent(fn (HttpRequest $request): bool => $request->hasHeader('x-goog-api-key', 'test-gemini-key')
             && str_contains($request->url(), '/models/gemini-3.8-flash:generateContent')
+            && $request['generationConfig']['thinkingConfig']['thinkingLevel'] === 'low'
+            && ! isset($request['generationConfig']['temperature'])
             && $request['generationConfig']['responseJsonSchema']['required'] === ['interviewer_response', 'follow_up_question', 'criteria']);
+    }
+
+    public function test_ajax_practice_submission_saves_feedback_and_returns_the_results_url(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $user = User::factory()->create();
+        $question = Question::query()->firstOrFail();
+        $this->fakeGeminiReview();
+
+        $response = $this->actingAs($user)->postJson(route('evaluate'), [
+            'question_id' => $question->id,
+            'answer' => 'This is a detailed example answer that is long enough for the interview flow.',
+        ]);
+
+        $attempt = Attempt::query()->sole();
+        $response->assertCreated()->assertJsonPath('redirect_url', route('results.show', $attempt));
+        $this->assertDatabaseHas('attempts', ['id' => $attempt->id, 'user_id' => $user->id]);
+        $this->assertSame(4, $attempt->feedbackItems()->count());
+    }
+
+    public function test_star_scores_are_capped_when_the_answer_lacks_two_component_evidence(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $user = User::factory()->create();
+        $question = Question::query()->firstOrFail();
+        $this->fakeGeminiReview();
+
+        $response = $this->actingAs($user)->postJson(route('evaluate'), [
+            'question_id' => $question->id,
+            'answer' => 'When the email system failed, records were reviewed and tests were completed. As a result, delivery improved and users received messages.',
+        ]);
+
+        $attempt = Attempt::query()->sole();
+        $response->assertCreated()->assertJsonPath('redirect_url', route('results.show', $attempt));
+        $this->assertSame(['Situation', 'Result'], $attempt->star_components);
+        $this->assertSame(58, $attempt->total_score);
+        $this->assertSame(5, $attempt->feedbackItems()->where('criterion', 'task')->value('criterion_score'));
+        $this->assertSame(5, $attempt->feedbackItems()->where('criterion', 'action')->value('criterion_score'));
+        $this->assertStringContainsString('capped at 5/25', $attempt->feedbackItems()->where('criterion', 'task')->value('tip'));
+    }
+
+    public function test_ajax_gemini_failure_returns_a_message_without_saving_a_partial_attempt(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $user = User::factory()->create();
+        $question = Question::query()->firstOrFail();
+        config()->set('services.gemini.key', 'test-gemini-key');
+        config()->set('services.gemini.model', 'gemini-3.8-flash');
+        config()->set('services.gemini.fallback_model', null);
+        Http::preventStrayRequests();
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::response(['error' => ['status' => 'UNAVAILABLE']], 503),
+        ]);
+        Sleep::fake();
+
+        $response = $this->actingAs($user)->postJson(route('evaluate'), [
+            'question_id' => $question->id,
+            'answer' => 'This is a long enough example answer for the interview practice flow.',
+        ]);
+
+        $response->assertStatus(503)->assertJsonPath('message', 'Gemini is temporarily overloaded (HTTP 503). The request was retried; please wait a moment and try again.');
+        $this->assertDatabaseCount('attempts', 0);
+        Http::assertSentCount(2);
+    }
+
+    public function test_gemini_zero_star_score_is_rejected_without_saving_an_attempt(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $user = User::factory()->create();
+        $question = Question::query()->firstOrFail();
+        config()->set('services.gemini.key', 'test-gemini-key');
+        config()->set('services.gemini.model', 'gemini-3.8-flash');
+        config()->set('services.gemini.fallback_model', null);
+        Http::preventStrayRequests();
+        $payload = $this->successfulGeminiPayload();
+        $review = json_decode($payload['candidates'][0]['content']['parts'][0]['text'], true, 512, JSON_THROW_ON_ERROR);
+        $review['criteria'][0]['score'] = 0;
+        $payload['candidates'][0]['content']['parts'][0]['text'] = json_encode($review, JSON_THROW_ON_ERROR);
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::response($payload),
+        ]);
+
+        $response = $this->actingAs($user)->postJson(route('evaluate'), [
+            'question_id' => $question->id,
+            'answer' => 'This is a long enough example answer for the interview practice flow.',
+        ]);
+
+        $response->assertStatus(503)->assertJsonPath('message', 'Gemini returned incomplete STAR feedback. Please try again.');
+        $this->assertDatabaseCount('attempts', 0);
+        Http::assertSentCount(1);
+    }
+
+    public function test_practice_page_includes_an_accessible_loading_progress_indicator(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $this->actingAs(User::factory()->create())->get(route('practice'))
+            ->assertOk()
+            ->assertSee('id="submission-progress"', false)
+            ->assertSee('role="progressbar"', false)
+            ->assertSee('id="submission-status"', false);
     }
 
     public function test_gemini_project_billing_error_is_explained_without_saving_the_attempt(): void
@@ -63,6 +167,7 @@ class InterviewLensFlowTest extends TestCase
         $question = Question::query()->firstOrFail();
         config()->set('services.gemini.key', 'test-gemini-key');
         config()->set('services.gemini.model', 'gemini-3.8-flash');
+        config()->set('services.gemini.fallback_model', null);
         Http::preventStrayRequests();
         Http::fake([
             'generativelanguage.googleapis.com/*' => Http::response(['error' => ['status' => 'PERMISSION_DENIED']], 403),
@@ -76,6 +181,159 @@ class InterviewLensFlowTest extends TestCase
         ]);
 
         $this->assertDatabaseCount('attempts', 0);
+    }
+
+    public function test_temporary_gemini_503_is_retried_and_the_interview_completes_when_it_recovers(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $user = User::factory()->create();
+        $question = Question::query()->firstOrFail();
+        config()->set('services.gemini.key', 'test-gemini-key');
+        config()->set('services.gemini.model', 'gemini-3.8-flash');
+        config()->set('services.gemini.fallback_model', null);
+        Http::preventStrayRequests();
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::sequence()
+                ->push(['error' => ['status' => 'UNAVAILABLE']], 503)
+                ->push($this->successfulGeminiPayload()),
+        ]);
+        Sleep::fake();
+
+        $response = $this->actingAs($user)->post(route('evaluate'), [
+            'question_id' => $question->id,
+            'answer' => 'This is a detailed example answer that is long enough for the interview flow.',
+        ]);
+
+        $attempt = Attempt::query()->sole();
+        $response->assertRedirect(route('results.show', $attempt));
+        $this->assertDatabaseCount('attempts', 1);
+        Http::assertSentCount(2);
+        Sleep::assertSequence([Sleep::for(500)->milliseconds()]);
+    }
+
+    public function test_gemini_503_uses_the_fallback_model_and_completes_the_interview(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $user = User::factory()->create();
+        $question = Question::query()->firstOrFail();
+        config()->set('services.gemini.key', 'test-gemini-key');
+        config()->set('services.gemini.model', 'gemini-3.8-flash');
+        config()->set('services.gemini.fallback_model', 'gemini-3.5-flash-lite');
+        Http::preventStrayRequests();
+        $successfulPayload = $this->successfulGeminiPayload();
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => function (HttpRequest $request) use ($successfulPayload) {
+                if (str_contains($request->url(), '/models/gemini-3.8-flash:generateContent')) {
+                    return Http::response(['error' => ['status' => 'UNAVAILABLE']], 503);
+                }
+
+                return Http::response($successfulPayload);
+            },
+        ]);
+        Sleep::fake();
+
+        $response = $this->actingAs($user)->post(route('evaluate'), [
+            'question_id' => $question->id,
+            'answer' => 'This is a detailed example answer that is long enough for the interview flow.',
+        ]);
+
+        $attempt = Attempt::query()->sole();
+        $response->assertRedirect(route('results.show', $attempt));
+        $this->assertDatabaseCount('attempts', 1);
+        Http::assertSentCount(3);
+        Http::assertSent(fn (HttpRequest $request): bool => str_contains($request->url(), '/models/gemini-3.8-flash:generateContent'));
+        Http::assertSent(fn (HttpRequest $request): bool => str_contains($request->url(), '/models/gemini-3.5-flash-lite:generateContent'));
+        Sleep::assertSequence([Sleep::for(500)->milliseconds()]);
+    }
+
+    public function test_gemini_rate_limit_uses_the_fallback_model_when_available(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $user = User::factory()->create();
+        $question = Question::query()->firstOrFail();
+        config()->set('services.gemini.key', 'test-gemini-key');
+        config()->set('services.gemini.model', 'gemini-3.8-flash');
+        config()->set('services.gemini.fallback_model', 'gemini-3.5-flash-lite');
+        Http::preventStrayRequests();
+        $successfulPayload = $this->successfulGeminiPayload();
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => function (HttpRequest $request) use ($successfulPayload) {
+                if (str_contains($request->url(), '/models/gemini-3.8-flash:generateContent')) {
+                    return Http::response(['error' => ['status' => 'RESOURCE_EXHAUSTED']], 429);
+                }
+
+                return Http::response($successfulPayload);
+            },
+        ]);
+
+        $response = $this->actingAs($user)->post(route('evaluate'), [
+            'question_id' => $question->id,
+            'answer' => 'This is a detailed example answer that is long enough for the interview flow.',
+        ]);
+
+        $attempt = Attempt::query()->sole();
+        $response->assertRedirect(route('results.show', $attempt));
+        $this->assertDatabaseCount('attempts', 1);
+        Http::assertSentCount(2);
+        Http::assertSent(fn (HttpRequest $request): bool => str_contains($request->url(), '/models/gemini-3.5-flash-lite:generateContent'));
+    }
+
+    public function test_gemini_connection_failure_uses_the_fallback_model(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $user = User::factory()->create();
+        $question = Question::query()->firstOrFail();
+        config()->set('services.gemini.key', 'test-gemini-key');
+        config()->set('services.gemini.model', 'gemini-3.8-flash');
+        config()->set('services.gemini.fallback_model', 'gemini-3.5-flash-lite');
+        Http::preventStrayRequests();
+        $successfulPayload = $this->successfulGeminiPayload();
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => function (HttpRequest $request) use ($successfulPayload) {
+                if (str_contains($request->url(), '/models/gemini-3.8-flash:generateContent')) {
+                    return Http::failedConnection();
+                }
+
+                return Http::response($successfulPayload);
+            },
+        ]);
+
+        $response = $this->actingAs($user)->post(route('evaluate'), [
+            'question_id' => $question->id,
+            'answer' => 'This is a detailed example answer that is long enough for the interview flow.',
+        ]);
+
+        $attempt = Attempt::query()->sole();
+        $response->assertRedirect(route('results.show', $attempt));
+        $this->assertDatabaseCount('attempts', 1);
+        Http::assertSentCount(3);
+        Http::assertSent(fn (HttpRequest $request): bool => str_contains($request->url(), '/models/gemini-3.5-flash-lite:generateContent'));
+    }
+
+    public function test_gemini_503_after_retries_is_explained_without_saving_the_attempt(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $user = User::factory()->create();
+        $question = Question::query()->firstOrFail();
+        config()->set('services.gemini.key', 'test-gemini-key');
+        config()->set('services.gemini.model', 'gemini-3.8-flash');
+        config()->set('services.gemini.fallback_model', null);
+        Http::preventStrayRequests();
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::response(['error' => ['status' => 'UNAVAILABLE']], 503),
+        ]);
+        Sleep::fake();
+
+        $this->actingAs($user)->from(route('practice'))->post(route('evaluate'), [
+            'question_id' => $question->id,
+            'answer' => 'This is a long enough example answer for the interview practice flow.',
+        ])->assertRedirect(route('practice'))->assertSessionHasErrors([
+            'answer' => 'Gemini is temporarily overloaded (HTTP 503). The request was retried; please wait a moment and try again.',
+        ]);
+
+        $this->assertDatabaseCount('attempts', 0);
+        Http::assertSentCount(2);
+        Sleep::assertSequence([Sleep::for(500)->milliseconds()]);
     }
 
     public function test_job_seeker_cannot_read_another_users_attempt(): void
@@ -161,26 +419,33 @@ class InterviewLensFlowTest extends TestCase
     {
         config()->set('services.gemini.key', 'test-gemini-key');
         config()->set('services.gemini.model', 'gemini-3.8-flash');
+        config()->set('services.gemini.fallback_model', null);
         Http::preventStrayRequests();
         Http::fake([
-            'generativelanguage.googleapis.com/*' => Http::response([
-                'candidates' => [[
-                    'content' => [
-                        'parts' => [[
-                            'text' => json_encode([
-                                'interviewer_response' => 'Thank you for describing how you restored access.',
-                                'follow_up_question' => 'How did you confirm the restore worked?',
-                                'criteria' => [
-                                    ['criterion' => 'Situation', 'score' => 23, 'feedback' => 'You explain the team problem.'],
-                                    ['criterion' => 'Task', 'score' => 22, 'feedback' => 'Your responsibility is clear.'],
-                                    ['criterion' => 'Action', 'score' => 24, 'feedback' => 'You describe concrete steps.'],
-                                    ['criterion' => 'Result', 'score' => 25, 'feedback' => 'You state the timely outcome.'],
-                                ],
-                            ], JSON_THROW_ON_ERROR),
-                        ]],
-                    ],
-                ]],
-            ]),
+            'generativelanguage.googleapis.com/*' => Http::response($this->successfulGeminiPayload()),
         ]);
+    }
+
+    /** @return array{candidates: array<int, array{content: array{parts: array<int, array{text: string}>}}>}} */
+    private function successfulGeminiPayload(): array
+    {
+        return [
+            'candidates' => [[
+                'content' => [
+                    'parts' => [[
+                        'text' => json_encode([
+                            'interviewer_response' => 'Thank you for describing how you restored access.',
+                            'follow_up_question' => 'How did you confirm the restore worked?',
+                            'criteria' => [
+                                ['criterion' => 'Situation', 'score' => 23, 'feedback' => 'You explain the team problem.'],
+                                ['criterion' => 'Task', 'score' => 22, 'feedback' => 'Your responsibility is clear.'],
+                                ['criterion' => 'Action', 'score' => 24, 'feedback' => 'You describe concrete steps.'],
+                                ['criterion' => 'Result', 'score' => 25, 'feedback' => 'You state the timely outcome.'],
+                            ],
+                        ], JSON_THROW_ON_ERROR),
+                    ]],
+                ],
+            ]],
+        ];
     }
 }

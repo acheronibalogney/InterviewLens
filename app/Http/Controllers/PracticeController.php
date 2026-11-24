@@ -8,6 +8,7 @@ use App\Models\Question;
 use App\Models\Resource;
 use App\Services\AnswerEvaluator;
 use App\Services\GeminiInterviewer;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -27,7 +28,7 @@ class PracticeController extends Controller
         ]);
     }
 
-    public function evaluate(Request $request, AnswerEvaluator $evaluator, GeminiInterviewer $interviewer): RedirectResponse
+    public function evaluate(Request $request, AnswerEvaluator $evaluator, GeminiInterviewer $interviewer): RedirectResponse|JsonResponse
     {
         $data = $request->validate([
             'question_id' => ['required', 'integer', 'exists:questions,id'],
@@ -36,12 +37,21 @@ class PracticeController extends Controller
         $question = Question::query()->where('is_active', true)->findOrFail($data['question_id']);
         $result = $evaluator->evaluate($data['answer'], $question);
 
+        if (function_exists('set_time_limit')) {
+            set_time_limit(120);
+        }
+
         try {
             $review = $interviewer->review($data['answer'], $question);
         } catch (GeminiInterviewerUnavailable $exception) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => $exception->getMessage()], 503);
+            }
+
             return back()->withErrors(['answer' => $exception->getMessage()])->withInput();
         }
 
+        $review['feedback'] = $evaluator->capUnsupportedStarScores($review['feedback'], $result['star_components']);
         $result['total_score'] = array_sum(array_column($review['feedback'], 'criterion_score'));
 
         $attempt = DB::transaction(function () use ($request, $question, $data, $result, $review): Attempt {
@@ -59,7 +69,13 @@ class PracticeController extends Controller
             return $attempt;
         });
 
-        return redirect()->route('results.show', $attempt);
+        $resultsUrl = route('results.show', $attempt);
+
+        if ($request->expectsJson()) {
+            return response()->json(['redirect_url' => $resultsUrl], 201);
+        }
+
+        return redirect()->to($resultsUrl);
     }
 
     public function results(Request $request, Attempt $attempt): View

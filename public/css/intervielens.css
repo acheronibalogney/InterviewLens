@@ -16,3 +16,22 @@
 
 .interviewer-prompt{margin:16px 0 0;padding:14px 15px;border:1px solid #e8ece3;border-radius:9px;background:#f8faf6}.interviewer-prompt>span{font-size:10px;font-weight:700;letter-spacing:.5px;color:#698154}.interviewer-prompt h2{margin-top:7px}.interviewer-response,.interviewer-follow-up{background:#fff;border:1px solid var(--line);border-radius:9px;padding:14px}.interviewer-response{border-left:3px solid #9bbd70}.interviewer-follow-up{background:#f5f7f1;border-color:#e4eadc}.interviewer-response p,.interviewer-follow-up p{font-size:12px;line-height:1.7;color:#536054;margin:8px 0 0}.interviewer-follow-up p{font-weight:600;color:#364235}
 .start-button{padding:8px 10px;border-radius:6px;background:#edf4e7;color:#3d5932;font-size:10px}.start-button:hover{background:#dfead5}
+
+.results-page-intro{padding-top:4px}
+.result-layout{grid-template-columns:minmax(230px,260px) minmax(0,1fr);gap:18px}
+.result-main{min-width:0}
+.feedback-card{align-items:flex-start;gap:12px}
+.feedback-check{width:auto;min-width:42px;min-height:34px;padding:5px 7px;font-size:11px;white-space:nowrap}
+.feedback-card p{font-size:11px;line-height:1.6}
+
+.submission-progress{display:grid;gap:10px;margin:15px 0 13px;padding:13px 14px;border:1px solid #e8ece3;border-radius:9px;background:#f8faf6}
+.submission-progress[hidden]{display:none}
+.submission-progress-copy{display:grid;gap:4px}
+.submission-progress-copy strong{font-size:11px;color:#39483a}
+.submission-progress-copy span{font-size:10px;line-height:1.5;color:#7e887d}
+.progress-track{height:7px;overflow:hidden;border-radius:99px;background:#e5ebdf}
+.progress-fill{display:block;width:35%;height:100%;border-radius:inherit;background:#77945d;animation:interview-progress 1.25s ease-in-out infinite alternate}
+.submission-progress.is-complete .progress-fill{width:100%;animation:none;background:#4c9267;transition:width .2s ease}
+#submit-answer:disabled{cursor:wait;opacity:.72}
+@keyframes interview-progress{from{transform:translateX(-110%)}to{transform:translateX(300%)}}
+@media(prefers-reduced-motion:reduce){.progress-fill{animation:none;transform:translateX(90%)}}
