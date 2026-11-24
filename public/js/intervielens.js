@@ -4,6 +4,16 @@ const questionTitle = document.querySelector('#dialog-question');
 const answer = document.querySelector('#answer');
 const wordCount = document.querySelector('#word-count');
 
+const previousQuestionId = questionField?.value;
+if (previousQuestionId && dialog) {
+  const previousQuestion = document.querySelector(`.start-button[data-question="${previousQuestionId}"]`);
+  if (previousQuestion) {
+    questionTitle.textContent = previousQuestion.dataset.title;
+    answer.dispatchEvent(new Event('input'));
+    dialog.showModal();
+  }
+}
+
 document.querySelectorAll('.start-button').forEach((button) => {
   button.addEventListener('click', () => {
     questionField.value = button.dataset.question;

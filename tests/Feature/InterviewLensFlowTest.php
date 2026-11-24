@@ -8,6 +8,8 @@ use App\Models\User;
 use App\Services\AnswerEvaluator;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Http\Client\Request as HttpRequest;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class InterviewLensFlowTest extends TestCase
@@ -28,6 +30,7 @@ class InterviewLensFlowTest extends TestCase
     public function test_job_seeker_can_register_practice_and_review_four_criterion_feedback_rows(): void
     {
         $this->seed(DatabaseSeeder::class);
+        $this->fakeGeminiReview();
         $this->post(route('register.store'), [
             'full_name' => 'Alex Morgan', 'email' => 'alex@example.com',
             'password' => 'practice-safe-password', 'password_confirmation' => 'practice-safe-password',
@@ -45,8 +48,34 @@ class InterviewLensFlowTest extends TestCase
         $this->assertSame($answer, $attempt->answer_text);
         $this->assertSame(4, $attempt->feedbackItems()->count());
         $this->assertSame($attempt->total_score, $attempt->feedbackItems()->sum('criterion_score'));
-        $this->get(route('results.show', $attempt))->assertOk()->assertSee('Your feedback')->assertSee('YOUR PRACTICE SCORE')->assertSee('A FEW RECOMMENDED NEXT READS');
+        $this->get(route('results.show', $attempt))->assertOk()->assertSee('Your feedback')->assertSee('YOUR PRACTICE SCORE')->assertSee('A FEW RECOMMENDED NEXT READS')->assertSee('FROM YOUR AI INTERVIEWER');
         $this->get(route('history'))->assertOk()->assertSee($question->question_text);
+
+        Http::assertSent(fn (HttpRequest $request): bool => $request->hasHeader('x-goog-api-key', 'test-gemini-key')
+            && str_contains($request->url(), '/models/gemini-3.8-flash:generateContent')
+            && $request['generationConfig']['responseJsonSchema']['required'] === ['interviewer_response', 'follow_up_question', 'criteria']);
+    }
+
+    public function test_gemini_project_billing_error_is_explained_without_saving_the_attempt(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $user = User::factory()->create();
+        $question = Question::query()->firstOrFail();
+        config()->set('services.gemini.key', 'test-gemini-key');
+        config()->set('services.gemini.model', 'gemini-3.8-flash');
+        Http::preventStrayRequests();
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::response(['error' => ['status' => 'PERMISSION_DENIED']], 403),
+        ]);
+
+        $this->actingAs($user)->from(route('practice'))->post(route('evaluate'), [
+            'question_id' => $question->id,
+            'answer' => 'This is a long enough example answer for the interview practice flow.',
+        ])->assertRedirect(route('practice'))->assertSessionHasErrors([
+            'answer' => 'Gemini accepted the API key but denied generation for its Google AI Studio project. Check project access and billing.',
+        ]);
+
+        $this->assertDatabaseCount('attempts', 0);
     }
 
     public function test_job_seeker_cannot_read_another_users_attempt(): void
@@ -126,5 +155,32 @@ class InterviewLensFlowTest extends TestCase
 
         $this->assertSame($first['total_score'], $second['total_score']);
         $this->assertSame($first['total_score'], array_sum(array_column($first['feedback'], 'criterion_score')));
+    }
+
+    private function fakeGeminiReview(): void
+    {
+        config()->set('services.gemini.key', 'test-gemini-key');
+        config()->set('services.gemini.model', 'gemini-3.8-flash');
+        Http::preventStrayRequests();
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::response([
+                'candidates' => [[
+                    'content' => [
+                        'parts' => [[
+                            'text' => json_encode([
+                                'interviewer_response' => 'Thank you for describing how you restored access.',
+                                'follow_up_question' => 'How did you confirm the restore worked?',
+                                'criteria' => [
+                                    ['criterion' => 'Situation', 'score' => 23, 'feedback' => 'You explain the team problem.'],
+                                    ['criterion' => 'Task', 'score' => 22, 'feedback' => 'Your responsibility is clear.'],
+                                    ['criterion' => 'Action', 'score' => 24, 'feedback' => 'You describe concrete steps.'],
+                                    ['criterion' => 'Result', 'score' => 25, 'feedback' => 'You state the timely outcome.'],
+                                ],
+                            ], JSON_THROW_ON_ERROR),
+                        ]],
+                    ],
+                ]],
+            ]),
+        ]);
     }
 }

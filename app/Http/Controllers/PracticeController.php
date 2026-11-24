@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\GeminiInterviewerUnavailable;
 use App\Models\Attempt;
 use App\Models\Question;
 use App\Models\Resource;
 use App\Services\AnswerEvaluator;
+use App\Services\GeminiInterviewer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -25,7 +27,7 @@ class PracticeController extends Controller
         ]);
     }
 
-    public function evaluate(Request $request, AnswerEvaluator $evaluator): RedirectResponse
+    public function evaluate(Request $request, AnswerEvaluator $evaluator, GeminiInterviewer $interviewer): RedirectResponse
     {
         $data = $request->validate([
             'question_id' => ['required', 'integer', 'exists:questions,id'],
@@ -34,13 +36,25 @@ class PracticeController extends Controller
         $question = Question::query()->where('is_active', true)->findOrFail($data['question_id']);
         $result = $evaluator->evaluate($data['answer'], $question);
 
-        $attempt = DB::transaction(function () use ($request, $question, $data, $result): Attempt {
+        try {
+            $review = $interviewer->review($data['answer'], $question);
+        } catch (GeminiInterviewerUnavailable $exception) {
+            return back()->withErrors(['answer' => $exception->getMessage()])->withInput();
+        }
+
+        $result['total_score'] = array_sum(array_column($review['feedback'], 'criterion_score'));
+
+        $attempt = DB::transaction(function () use ($request, $question, $data, $result, $review): Attempt {
             $attempt = $request->user()->attempts()->create([
                 'question_id' => $question->id,
                 'answer_text' => $data['answer'],
                 ...$result,
+                'feedback' => [
+                    'interviewer_response' => $review['interviewer_response'],
+                    'follow_up_question' => $review['follow_up_question'],
+                ],
             ]);
-            $attempt->feedbackItems()->createMany($result['feedback']);
+            $attempt->feedbackItems()->createMany($review['feedback']);
 
             return $attempt;
         });
