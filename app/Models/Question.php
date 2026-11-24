@@ -10,15 +10,15 @@ class Question extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['category', 'question', 'keywords', 'is_behavioral', 'is_active'];
+    protected $fillable = ['category', 'question_text', 'key_terms', 'is_behavioral', 'is_active'];
 
     protected function casts(): array
     {
-        return ['keywords' => 'array', 'is_behavioral' => 'boolean', 'is_active' => 'boolean'];
+        return ['key_terms' => 'array', 'is_behavioral' => 'boolean', 'is_active' => 'boolean'];
     }
 
-    public function evaluations(): HasMany
+    public function attempts(): HasMany
     {
-        return $this->hasMany(Evaluation::class);
+        return $this->hasMany(Attempt::class);
     }
 }

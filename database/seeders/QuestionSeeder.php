@@ -10,9 +10,10 @@ class QuestionSeeder extends Seeder
     public function run(): void
     {
         $questions = [
-            ['Getting started', 'Tell me about yourself.', ['experience', 'skills', 'background', 'goal', 'role'], false],
+            ['Getting started', 'Tell me about yourself.', ['skills', 'experience', 'goal'], false],
             ['Getting started', 'What interests you about this role?', ['role', 'company', 'skills', 'contribute', 'interest'], false],
             ['Getting started', 'Why should we hire you?', ['experience', 'skills', 'team', 'results', 'contribute'], false],
+            ['Behavioral', 'Describe a time you solved a problem.', ['problem', 'solution', 'result'], true],
             ['Behavioral', 'Tell me about a challenge you faced and how you handled it.', ['challenge', 'problem', 'team', 'solution', 'result'], true],
             ['Behavioral', 'Describe a time you worked with a team to reach a goal.', ['team', 'goal', 'collaborate', 'communication', 'result'], true],
             ['Behavioral', 'Tell me about a mistake you made and what you learned.', ['mistake', 'learned', 'improve', 'feedback', 'change'], true],
@@ -22,7 +23,7 @@ class QuestionSeeder extends Seeder
             ['Strengths & goals', 'Where would you like to grow in the next few years?', ['goal', 'learn', 'grow', 'career', 'skills'], false],
         ];
         foreach ($questions as [$category, $question, $keywords, $behavioral]) {
-            Question::query()->updateOrCreate(['category' => $category, 'question' => $question], ['keywords' => $keywords, 'is_behavioral' => $behavioral, 'is_active' => true]);
+            Question::query()->updateOrCreate(['category' => $category, 'question_text' => $question], ['key_terms' => $keywords, 'is_behavioral' => $behavioral, 'is_active' => true]);
         }
     }
 }

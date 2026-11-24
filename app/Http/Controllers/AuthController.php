@@ -24,12 +24,12 @@ class AuthController extends Controller
     {
         $request->merge(['email' => mb_strtolower(trim((string) $request->input('email', '')))]);
         $validated = $request->validate([
-            'name' => ['required', 'string', 'min:2', 'max:120'],
+            'full_name' => ['required', 'string', 'min:2', 'max:120'],
             'email' => ['required', 'email', 'max:190', 'unique:users,email'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
             'terms' => ['accepted'],
         ]);
-        $user = User::create(['name' => $validated['name'], 'email' => mb_strtolower($validated['email']), 'password' => $validated['password']]);
+        $user = User::create(['full_name' => $validated['full_name'], 'email' => mb_strtolower($validated['email']), 'password' => $validated['password']]);
         Auth::login($user);
         $request->session()->regenerate();
 

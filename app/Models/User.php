@@ -11,16 +11,16 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password'])]
+#[Fillable(['full_name', 'email', 'password'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
 
-    public function evaluations(): HasMany
+    public function attempts(): HasMany
     {
-        return $this->hasMany(Evaluation::class);
+        return $this->hasMany(Attempt::class);
     }
 
     /**

@@ -47,14 +47,14 @@ GitHub Actions runs the same suite for pushes and pull requests using PHP 8.5 an
 
 ## Scoring rubric
 
-The 100-point score combines answer length (up to 25 points), structure (up to 35 points for behavioral prompts), filler-word frequency (up to 20 points), and question-related term coverage (up to 20 points). Non-behavioral prompts receive a smaller structure score for concrete examples. Feedback describes the detected patterns and suggests a next step.
+The deterministic 100-point rubric awards up to 25 points for answer length, 35 for STAR components, 20 for filler-word control, and 20 for question key-term coverage. A given answer and question produce the same scores. Each criterion is saved as its own feedback row with a tip.
 
 ## Research alignment
 
 - Common questions and typed responses are presented in the practice workspace.
-- `App\Services\AnswerEvaluator` evaluates length, STAR indicators, filler words, and question-related terms.
-- The `evaluations` table stores feedback and scores for account-scoped history.
+- `App\Services\AnswerEvaluator` awards the paper's 25/35/20/20 points for length, STAR indicators, filler words, and key terms.
+- The `users`, `questions`, `attempts`, and `feedback` tables follow the research model. Job seekers can practice and review account-scoped attempts; administrators can create, edit, and deactivate questions. Existing attempts are kept through the schema upgrade.
 - Learning resources are seeded with skill keys and recommended from answer weaknesses.
 - Laravel routes and Blade views provide the browser tier, application services provide the application tier, and Eloquent models and migrations provide the data tier.
 
-The paper's SUS-inspired and ISO 9126 usability evaluation still needs to be conducted separately with job seekers or fresh graduates. InterviewLens does not claim to collect or analyze those respondent survey results.
+Create an administrator by promoting a trusted account through an authorized database operation; public registration always creates a job seeker. For example, from a secure local environment, run `php artisan tinker` and set the intended account's `role` to `administrator`. The paper's weighted-mean usability questionnaire is a separate study activity; InterviewLens does not invent respondents or survey results.
