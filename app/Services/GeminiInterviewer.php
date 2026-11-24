@@ -100,7 +100,7 @@ class GeminiInterviewer
                     continue;
                 }
 
-                throw new GeminiInterviewerUnavailable('The Gemini interviewer could not be reached using the configured models. Check your connection and Gemini settings.', previous: $exception);
+                throw new GeminiInterviewerUnavailable('Laravel could not connect to the Gemini API. Check that this server can reach generativelanguage.googleapis.com over HTTPS, then try again. Your answer was not saved.', previous: $exception);
             }
 
             if ($response->successful()

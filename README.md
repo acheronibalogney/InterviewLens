@@ -36,7 +36,7 @@ DB_DATABASE=database/database.sqlite
 
 GEMINI_API_KEY=your-google-ai-studio-api-key
 GEMINI_MODEL=gemini-3.8-flash
-GEMINI_FALLBACK_MODEL=gemini-3.6-flash
+GEMINI_FALLBACK_MODEL=gemini-3.5-flash-lite
 ```
 
 Create the SQLite database, install and build the frontend assets, migrate and seed the database, then start the local server:
@@ -79,7 +79,7 @@ Ensure PHP has `pdo_mysql` enabled, then run `php artisan migrate --seed`.
 
 Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/app/apikey), then put it in `GEMINI_API_KEY` in your local `.env` file. InterviewLens sends answers from the signed-in user's browser to Laravel, then Laravel calls Gemini with the key kept server-side. Do not put the key in JavaScript, commit it, or share it in screenshots.
 
-`GEMINI_MODEL` is the primary model. If it is temporarily unavailable or rate-limited, `GEMINI_FALLBACK_MODEL` is tried automatically. The default fallback is Gemini 3.6 Flash. For transient server errors, the primary request uses bounded exponential backoff before the app tries the fallback model; the fallback receives one retry. Both model requests have short timeouts so the web server can return a useful error before PHP's request limit. A project-wide quota limit can still affect both models. A 401 or 403 indicates an API key or project-access problem, and may require reviewing the key's project settings or billing access in Google AI Studio.
+`GEMINI_MODEL` is the primary model. If it is temporarily unavailable or rate-limited, `GEMINI_FALLBACK_MODEL` is tried automatically. The default fallback is Gemini 3.5 Flash-Lite. For a Gemini 503, the primary request is retried once after a short wait before the app tries the fallback model. Both model requests have short timeouts so the web server can return a useful error before PHP's request limit. A project-wide quota limit can still affect both models. A 401 or 403 indicates an API key or project-access problem, and may require reviewing the key's project settings or billing access in Google AI Studio.
 
 ## Frontend changes
 
